@@ -1,0 +1,16 @@
+{
+  "model_name": "decision_tree",
+  "input_file": "outputs\\splits\\X_test_raw.pkl.gz",
+  "samples": 102851,
+  "label_column": "y_test.csv",
+  "has_ground_truth": true,
+  "accuracy": 0.9625672088749745,
+  "precision": 0.9437248560384949,
+  "recall": 0.9952912597128167,
+  "f1_score": 0.9688223766256904,
+  "attack_precision": 0.9928292707647088,
+  "attack_recall": 0.9165614035087719,
+  "attack_f1_score": 0.9531721319451202,
+  "roc_auc": 0.9814638039611877,
+  "attack_roc_auc": 0.9814638039611877
+}

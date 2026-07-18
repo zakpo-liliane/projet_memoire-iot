@@ -1,0 +1,9 @@
+{
+  "best_model": "decision_tree",
+  "artifact": "C:\\Users\\ST-ZAKPO\\Desktop\\Nouveau dossier\\projet_memoire-sans-site\\models\\final\\best_model_bundle.joblib",
+  "scaler_artifact": "C:\\Users\\ST-ZAKPO\\Desktop\\Nouveau dossier\\projet_memoire-sans-site\\models\\final\\best_model_scaler.joblib",
+  "classifier_artifact": "C:\\Users\\ST-ZAKPO\\Desktop\\Nouveau dossier\\projet_memoire-sans-site\\models\\final\\best_model_classifier.joblib",
+  "pruned_classifier_artifact": "C:\\Users\\ST-ZAKPO\\Desktop\\Nouveau dossier\\projet_memoire-sans-site\\models\\final\\best_model_pruned_classifier.joblib",
+  "ccp_alpha": 3.438323426148041e-05,
+  "reason": "best overall test performance"
+}

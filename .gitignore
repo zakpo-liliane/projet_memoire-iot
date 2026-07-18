@@ -1,0 +1,55 @@
+# Datasets et fichiers de données volumineux
+Datasense-IIoT-2025/
+*.csv
+*.tsv
+data/
+datasets/
+raw_data/
+
+# Modèles entraînés
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.pt
+*.pth
+*.onnx
+*.tflite
+*.keras
+*.joblib
+models/
+checkpoints/
+
+# Archives
+*.zip
+*.rar
+*.7z
+*.tar
+*.tar.gz
+
+# Environnements Python
+venv/
+env/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Notebooks Jupyter - fichiers temporaires
+.ipynb_checkpoints/
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Fichiers de configuration sensibles
+.env
+*.key
+outputs/ 
+*.pkl.gz 
+*.gz 
