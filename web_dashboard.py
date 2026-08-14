@@ -1603,18 +1603,24 @@ function renderAlertFeed(rows) {
   const el = document.getElementById("alertFeed");
   if (!el) return;
   const fallback = [
-    { severity: "CRITIQUE", message: "DDoS volumetrique detecte", detail: "Passerelle-03 Â· controleur PLC", source_ip: "192.168.4.12" },
+    { severity: "CRITIQUE", message: "DDoS volumetrique detecte", detail: "Passerelle-03 - controleur PLC", source_ip: "192.168.4.12" },
     { severity: "MOYEN", message: "Scan de ports anormal", detail: "Capteur-Temp-07", source_ip: "192.168.4.44" },
     { severity: "CRITIQUE", message: "Injection de commandes Modbus", detail: "Actionneur-Vanne-02", source_ip: "192.168.4.09" },
   ];
   const list = (rows && rows.length ? rows : fallback).slice(0, 3);
   el.innerHTML = list.map((row, index) => {
     const sev = String(row.severity || (index === 1 ? "MOYEN" : "CRITIQUE")).toUpperCase();
-    const medium = sev.includes("MOY") || sev.includes("WARN") || sev.includes("LOW");
+    const critical = sev.includes("CRIT") || sev.includes("DANGER");
+    const medium = !critical && (sev.includes("MOY") || sev.includes("WARN") || sev.includes("LOW"));
+    const badge = critical ? "CRITIQUE" : medium ? "MOYEN" : "NORMAL";
+    const filename = row.filename ? ` - ${row.filename}` : "";
+    const source = row.source_type ? `${row.source_type}${filename}` : (row.detail || "Decision Tree - paquet suspect");
+    const sampleInfo = row.sample_count ? ` - ${Number(row.sample_count).toLocaleString("fr-FR")} ligne(s)` : "";
+    const time = row.created_at ? `Oracle - ${row.created_at}` : `${row.source_ip || "Oracle"} - ${index === 0 ? "il y a 41 s" : "il y a " + (index + 2) + " min"}`;
     return `<div class="alert-item ${medium ? "medium" : ""}">
-      <div class="alert-badge">${medium ? "MOYEN" : "CRITIQUE"}</div>
-      <div class="alert-main"><strong>${row.message || "Attaque detectee"}</strong><span class="mono-sub">${row.detail || "Decision Tree Â· paquet suspect"}</span></div>
-      <div class="alert-time">${row.source_ip || "Oracle"} Â· ${index === 0 ? "il y a 41 s" : "il y a " + (index + 2) + " min"}</div>
+      <div class="alert-badge">${badge}</div>
+      <div class="alert-main"><strong>${row.message || "Attaque detectee"}</strong><span class="mono-sub">${source}${sampleInfo}</span></div>
+      <div class="alert-time">${time}</div>
     </div>`;
   }).join("");
 }

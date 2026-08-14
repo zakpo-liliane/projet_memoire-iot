@@ -222,11 +222,15 @@ def list_alerts(limit: int = 25) -> list[dict[str, Any]]:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
-                select alert_id, upload_id, severity, message, created_at
+                select alert_id, upload_id, severity, message, source_type, filename,
+                       sample_count, attack_count, alert_rate, created_at
                 from (
-                    select alert_id, upload_id, severity, message, created_at
-                    from ids_alerts
-                    order by created_at desc
+                    select a.alert_id, a.upload_id, a.severity, a.message,
+                           u.source_type, u.filename, u.sample_count,
+                           u.attack_count, u.alert_rate, a.created_at
+                    from ids_alerts a
+                    left join ids_uploads u on u.upload_id = a.upload_id
+                    order by a.created_at desc
                 )
                 where rownum <= :limit
                 """,
