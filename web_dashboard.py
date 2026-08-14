@@ -614,6 +614,35 @@ def html_page() -> str:
       margin-bottom: 10px;
     }
     .demo-step strong { display: block; margin-bottom: 6px; }
+    .scope-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .scope-card {
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      border-radius: 8px;
+      padding: 16px;
+      min-height: 210px;
+    }
+    .scope-card ul {
+      margin: 12px 0 0;
+      padding-left: 18px;
+      color: var(--muted);
+      line-height: 1.75;
+    }
+    .scope-badge {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid rgba(var(--accent-rgb), .35);
+      color: var(--blue);
+      background: rgba(var(--accent-rgb), .08);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-family: "Consolas", monospace;
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    .scope-badge.warning { color: var(--amber); border-color: rgba(242,169,59,.38); background: rgba(242,169,59,.10); }
+    .scope-badge.future { color: var(--green); border-color: rgba(87,213,122,.35); background: rgba(87,213,122,.10); }
     .arch-flow {
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -996,7 +1025,7 @@ def html_page() -> str:
     @media (max-width: 980px) {
       .app { grid-template-columns: 1fr; }
       aside { position: static; height: auto; }
-      .cards, .two, .three, .model-grid, .media-row, .sentinel-grid, .demo-steps, .arch-flow { grid-template-columns: 1fr; }
+      .cards, .two, .three, .model-grid, .media-row, .sentinel-grid, .demo-steps, .scope-grid, .arch-flow { grid-template-columns: 1fr; }
       .arch-node::after { display: none; }
       main { padding: 18px; }
       .bar-row { grid-template-columns: 120px 1fr 58px; }
@@ -1043,6 +1072,7 @@ def html_page() -> str:
         <button data-page="prediction" type="button">Prediction</button>
         <button data-page="demo" type="button">Mode demonstration</button>
         <button data-page="architecture" type="button">Architecture</button>
+        <button data-page="limits" type="button">Limites & perspectives</button>
         <button data-page="history" type="button">Historique Oracle</button>
         <button data-page="explainability" type="button">Explicabilite</button>
       </div>
@@ -1362,6 +1392,49 @@ def html_page() -> str:
         <div class="card"><div class="metric-label">Utilisateur</div><div class="metric-value">admin</div></div>
         <div class="card"><div class="metric-label">Modele deploye</div><div class="metric-value">Decision Tree</div></div>
         <div class="card"><div class="metric-label">Prediction</div><div class="metric-value">CSV</div></div>
+      </div>
+    </section>
+
+    <section id="limits">
+      <h1>Limites & perspectives</h1>
+      <p class="lead">Cette page clarifie le perimetre exact du prototype: ce qui est deja fonctionnel, ce qui reste une limite actuelle, et les evolutions possibles vers un IDS temps reel.</p>
+      <div class="scope-grid">
+        <div class="scope-card">
+          <div class="scope-badge">REALISE</div>
+          <h2>Prototype fonctionnel</h2>
+          <ul>
+            <li>Comparaison de 8 modeles sur CIC-IIoT-2025.</li>
+            <li>Decision Tree retenu comme modele final.</li>
+            <li>Prediction reelle a partir de fichiers CSV compatibles.</li>
+            <li>Sauvegarde des analyses et alertes dans Oracle.</li>
+            <li>Tableau de bord dynamique pour la soutenance.</li>
+          </ul>
+        </div>
+        <div class="scope-card">
+          <div class="scope-badge warning">LIMITES</div>
+          <h2>Perimetre actuel</h2>
+          <ul>
+            <li>La prediction depend du format des fichiers CSV.</li>
+            <li>L'application n'est pas connectee a un capteur reseau physique.</li>
+            <li>Le graphique temps reel utilise les predictions et l'historique Oracle.</li>
+            <li>Il ne s'agit pas encore d'une capture reseau industrielle en direct.</li>
+          </ul>
+        </div>
+        <div class="scope-card">
+          <div class="scope-badge future">PERSPECTIVES</div>
+          <h2>Evolution professionnelle</h2>
+          <ul>
+            <li>Connecter un flux reseau reel ou un collecteur de paquets.</li>
+            <li>Ajouter une API de surveillance continue.</li>
+            <li>Creer des roles utilisateurs: admin, analyste, lecteur.</li>
+            <li>Ajouter des notifications d'alerte.</li>
+            <li>Deployer l'application sur un serveur.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:16px">
+        <h2>Formulation correcte pour la soutenance</h2>
+        <p>L'application est un prototype IDS fonctionnel: elle applique le modele Decision Tree sur des donnees reseau au format CSV, enregistre les resultats dans Oracle et affiche les alertes dans un tableau de bord dynamique. La connexion a un flux reseau reel constitue une perspective d'amelioration.</p>
       </div>
     </section>
 
