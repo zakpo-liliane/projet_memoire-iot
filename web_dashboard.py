@@ -1402,6 +1402,7 @@ def html_page() -> str:
         <button class="btn primary" id="refreshHistoryBtn">Actualiser</button>
         <button class="btn" id="downloadHistoryBtn">Telecharger l'historique</button>
         <button class="btn" id="syncModelsBtn">Synchroniser les resultats modeles</button>
+        <button class="btn" id="clearHistoryBtn">Vider l'historique Oracle</button>
       </div>
       <div class="grid two">
         <div class="panel">
@@ -1989,6 +1990,29 @@ async function syncModels() {
   loadHistory();
 }
 
+async function clearOracleHistory() {
+  const confirmation = window.prompt("Pour supprimer l'historique Oracle, saisis exactement: VIDER");
+  if (confirmation !== "VIDER") return;
+  const password = window.prompt("Mot de passe administrateur requis:");
+  if (!password) return;
+  const msgEl = document.getElementById("oracleMessage");
+  msgEl.className = "status-box warning";
+  msgEl.textContent = "Suppression de l'historique Oracle en cours...";
+  const res = await fetch("/api/history/clear", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ confirmation, password }),
+  });
+  const data = await res.json();
+  msgEl.className = "status-box " + (res.ok && data.cleared ? "safe" : "danger");
+  msgEl.textContent = data.message || data.error || "Operation terminee.";
+  state.history = [];
+  state.alerts = [];
+  renderAlertFeed([]);
+  renderTrafficChart([], []);
+  loadHistory();
+}
+
 async function predictWithFile() {
   const input = document.getElementById("csvFile");
   const folderInput = document.getElementById("folderInput");
@@ -2247,6 +2271,7 @@ document.getElementById("downloadReportBtn").addEventListener("click", downloadP
 document.getElementById("refreshHistoryBtn").addEventListener("click", loadHistory);
 document.getElementById("downloadHistoryBtn").addEventListener("click", downloadHistoryReport);
 document.getElementById("syncModelsBtn").addEventListener("click", syncModels);
+document.getElementById("clearHistoryBtn").addEventListener("click", clearOracleHistory);
 loadData().catch(err => {
   document.body.innerHTML = `<pre style="padding:24px">${err.stack || err}</pre>`;
 });
@@ -2321,6 +2346,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/realtime-simulation":
                 limit = int(parse_qs(parsed.query).get("limit", ["80"])[0])
                 self.handle_realtime_simulation(limit)
+            elif parsed.path == "/api/history/clear":
+                self.handle_clear_history()
             elif parsed.path == "/api/oracle/sync-models":
                 self.handle_sync_models()
             else:
@@ -2389,6 +2416,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
         except Exception as exc:
             self.send_json({"oracle": {**oracle_status, "connected": False, "message": str(exc)}, "history": [], "alerts": []})
+
+    def handle_clear_history(self) -> None:
+        oracle_status = oracle_store.status()
+        if not oracle_status.get("connected"):
+            self.send_json({"cleared": False, "message": oracle_status.get("message", "Oracle non connecte.")}, status=400)
+            return
+        length = int(self.headers.get("Content-Length", "0"))
+        body = self.rfile.read(length) if length else b"{}"
+        payload = json.loads(body.decode("utf-8") or "{}")
+        if payload.get("password") != "admin1" or payload.get("confirmation") != "VIDER":
+            self.send_json({"cleared": False, "message": "Suppression refusee: confirmation administrateur invalide."}, status=403)
+            return
+        self.send_json(oracle_store.clear_history())
 
     def handle_sync_models(self) -> None:
         data = load_dashboard_data()

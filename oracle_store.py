@@ -239,6 +239,26 @@ def list_alerts(limit: int = 25) -> list[dict[str, Any]]:
             return [_row_to_dict(cursor, row) for row in cursor.fetchall()]
 
 
+def clear_history() -> dict[str, Any]:
+    conn = _connect()
+    if conn is None:
+        return {"cleared": False, "message": "Oracle desactive."}
+    with conn:
+        with conn.cursor() as cursor:
+            cursor.execute("select count(*) from ids_uploads")
+            uploads = int(cursor.fetchone()[0])
+            cursor.execute("select count(*) from ids_alerts")
+            alerts = int(cursor.fetchone()[0])
+            cursor.execute("delete from ids_uploads")
+        conn.commit()
+    return {
+        "cleared": True,
+        "uploads_deleted": uploads,
+        "alerts_deleted": alerts,
+        "message": f"Historique Oracle vide: {uploads} analyse(s) et {alerts} alerte(s) supprimee(s).",
+    }
+
+
 def sync_model_results(models: list[dict[str, Any]]) -> dict[str, Any]:
     conn = _connect()
     if conn is None:
