@@ -384,6 +384,70 @@ def public_prediction_result(result: dict[str, object], oracle_result: dict[str,
     return public
 
 
+def realtime_simulation_payload(limit: int = 80) -> dict[str, object]:
+    benign_path = ROOT / "prediction_demo" / "benign_demo_300.csv"
+    attack_path = ROOT / "prediction_demo" / "attack_demo_300.csv"
+    demo_path = ROOT / "prediction_demo" / "mixed_attack_benign_demo_600.csv"
+    limit = max(1, min(limit, 200))
+    if benign_path.exists() and attack_path.exists():
+        benign_df = pd.read_csv(benign_path).head(max(1, limit // 2)).copy()
+        attack_df = pd.read_csv(attack_path).head(max(1, limit - len(benign_df))).copy()
+        raw_df = pd.concat([benign_df, attack_df], ignore_index=True)
+        order = []
+        left = list(range(len(benign_df)))
+        right = list(range(len(benign_df), len(raw_df)))
+        while left or right:
+            if left:
+                order.extend(left[:3])
+                left = left[3:]
+            if right:
+                order.extend(right[:2])
+                right = right[2:]
+        raw_df = raw_df.iloc[order[:limit]].reset_index(drop=True)
+        source_name = "benign_demo_300.csv + attack_demo_300.csv"
+    elif demo_path.exists():
+        raw_df = pd.read_csv(demo_path).head(limit).copy()
+        source_name = demo_path.name
+    else:
+        raise FileNotFoundError("Fichiers de simulation introuvables dans prediction_demo.")
+
+    result = run_prediction(raw_df)
+    predictions = result.get("_predictions_df")
+    if not isinstance(predictions, pd.DataFrame):
+        raise ValueError("Predictions de simulation indisponibles.")
+
+    oracle_result = save_prediction_to_oracle(result, source="simulation", filename=source_name)
+    events = []
+    for index, row in predictions.head(len(raw_df)).iterrows():
+        raw_row = raw_df.iloc[index]
+        predicted_class = str(row["classe_predite"])
+        attack = predicted_class.lower().startswith("attaque")
+        source_ip = "Dataset"
+        if "network_ips_src" in raw_row:
+            source_ip = str(raw_row["network_ips_src"])[:42]
+        family = str(raw_row.get("label2", "trafic reseau"))
+        events.append(
+            {
+                "step": int(index + 1),
+                "classe_predite": predicted_class,
+                "probabilite_attaque": float(row["probabilite_attaque"]),
+                "probabilite_benin": float(row["probabilite_benin"]),
+                "label_reel": str(raw_row.get("label1", "")),
+                "famille": family,
+                "source_ip": source_ip,
+                "severity": "CRITIQUE" if attack else "NORMAL",
+                "message": f"{'Attaque detectee' if attack else 'Trafic benin'} - {family}",
+            }
+        )
+
+    public = public_prediction_result(result, oracle_result)
+    public["source"] = "simulation_dataset"
+    public["mode"] = "simulation temps reel basee sur dataset"
+    public["events"] = events
+    public["report"]["source"] = "simulation_dataset"
+    return public
+
+
 def parse_multipart(body: bytes, content_type: str) -> dict[str, list[dict[str, object]]]:
     marker = "boundary="
     if marker not in content_type:
@@ -1307,6 +1371,8 @@ def html_page() -> str:
         <div class="toolbar">
           <button class="btn primary" id="predictBtn">Lancer la detection</button>
           <button class="btn" id="demoBtn">Utiliser un echantillon demo</button>
+          <button class="btn" id="streamDemoBtn">Simuler un flux temps reel</button>
+          <button class="btn" id="stopStreamBtn" type="button" disabled>Arreter le flux</button>
           <button class="btn" id="downloadReportBtn" type="button" disabled>Telecharger le rapport</button>
         </div>
         <div id="predictStatus" class="status-box">Aucune prediction lancee.</div>
@@ -1459,6 +1525,8 @@ def html_page() -> str:
 
 <script>
 const state = { data: null, history: [], alerts: [], lastPrediction: null };
+let streamTimer = null;
+let streamIndex = 0;
 const fmt = (v, digits = 4) => Number(v || 0).toFixed(digits);
 const pct = (v) => (Number(v || 0) * 100).toFixed(1) + "%";
 
@@ -1959,6 +2027,107 @@ async function predictDemo() {
   loadHistory();
 }
 
+async function startRealtimeSimulation() {
+  const status = document.getElementById("predictStatus");
+  const startBtn = document.getElementById("streamDemoBtn");
+  const stopBtn = document.getElementById("stopStreamBtn");
+  stopRealtimeSimulation(false);
+  status.className = "status-box";
+  status.textContent = "Preparation du flux simule a partir du dataset CIC-IIoT-2025...";
+  const res = await fetch("/api/realtime-simulation?limit=80", { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) {
+    status.className = "status-box danger";
+    status.textContent = data.error || "Erreur pendant la simulation temps reel.";
+    return;
+  }
+  state.lastPrediction = data;
+  document.getElementById("downloadReportBtn").disabled = false;
+  streamIndex = 0;
+  state.history = [];
+  state.alerts = [];
+  renderPredictionShell(data);
+  startBtn.disabled = true;
+  stopBtn.disabled = false;
+  streamTimer = setInterval(() => playStreamEvent(data), 650);
+}
+
+function stopRealtimeSimulation(updateStatus = true) {
+  if (streamTimer) clearInterval(streamTimer);
+  streamTimer = null;
+  const startBtn = document.getElementById("streamDemoBtn");
+  const stopBtn = document.getElementById("stopStreamBtn");
+  if (startBtn) startBtn.disabled = false;
+  if (stopBtn) stopBtn.disabled = true;
+  if (updateStatus) {
+    const status = document.getElementById("predictStatus");
+    status.className = "status-box warning";
+    status.textContent = "Simulation temps reel arretee.";
+  }
+}
+
+function playStreamEvent(data) {
+  const events = data.events || [];
+  if (streamIndex >= events.length) {
+    stopRealtimeSimulation(false);
+    const status = document.getElementById("predictStatus");
+    status.className = `status-box ${data.status}`;
+    status.innerHTML = `<strong>Simulation terminee</strong> : ${data.attack_count} attaque(s) detectee(s) sur ${data.samples} ligne(s). Resultat sauvegarde dans Oracle.`;
+    loadHistory();
+    return;
+  }
+  const event = events[streamIndex];
+  streamIndex += 1;
+  const processed = streamIndex;
+  const attacks = events.slice(0, processed).filter(item => item.classe_predite === "Attaque").length;
+  const benign = processed - attacks;
+  const alertRate = attacks / Math.max(processed, 1);
+  state.history = [...(state.history || []), {
+    sample_count: processed,
+    attack_count: attacks,
+    benign_count: benign,
+    alert_rate: alertRate,
+  }].slice(-16);
+  if (event.classe_predite === "Attaque") {
+    state.alerts = [{
+      severity: "CRITIQUE",
+      message: `Flux simule: ${event.message}`,
+      detail: `Decision Tree - ligne ${event.step} - dataset CIC-IIoT-2025`,
+      source_ip: event.source_ip || "Dataset",
+    }, ...(state.alerts || [])].slice(0, 8);
+  }
+  renderAlertFeed(state.alerts);
+  renderTrafficChart(state.history, state.alerts);
+  const status = document.getElementById("predictStatus");
+  status.className = `status-box ${attacks > 0 ? "warning" : "safe"}`;
+  status.innerHTML = `<strong>Flux simule en cours</strong> : ${processed}/${events.length} ligne(s), ${attacks} attaque(s), taux ${pct(alertRate)}.`;
+  const tableEl = document.getElementById("streamTable");
+  if (tableEl) {
+    table(tableEl, events.slice(Math.max(0, processed - 12), processed).reverse(), [
+      {key: "step", label: "ligne"},
+      {key: "classe_predite", label: "prediction"},
+      {key: "famille", label: "famille"},
+      {key: "probabilite_attaque", label: "proba attaque"},
+      {key: "label_reel", label: "label reel"},
+    ]);
+  }
+}
+
+function renderPredictionShell(data) {
+  const result = document.getElementById("predictionResult");
+  result.innerHTML = `<div class="panel" style="margin-bottom:16px">
+    <h2>Simulation temps reel basee sur dataset</h2>
+    <p>Le flux est rejoue ligne par ligne depuis un echantillon CIC-IIoT-2025. Ce n'est pas une capture reseau directe, mais une simulation realiste pour demontrer le comportement IDS.</p>
+    <div class="grid cards">
+      <div class="card"><div class="metric-label">Source</div><div class="metric-value">Dataset</div></div>
+      <div class="card"><div class="metric-label">Modele</div><div class="metric-value">Decision Tree</div></div>
+      <div class="card"><div class="metric-label">Lignes</div><div class="metric-value">${data.samples}</div></div>
+      <div class="card"><div class="metric-label">Oracle</div><div class="metric-value">${data.oracle && data.oracle.saved ? "OK" : "Info"}</div></div>
+    </div>
+  </div>
+  <div class="panel"><h2>Evenements du flux simule</h2><div class="table-wrap"><table id="streamTable"></table></div></div>`;
+}
+
 function renderPrediction(data) {
   state.lastPrediction = data;
   document.getElementById("downloadReportBtn").disabled = false;
@@ -2064,6 +2233,8 @@ document.getElementById("settingsMenuBtn").addEventListener("click", () => {
 });
 document.getElementById("predictBtn").addEventListener("click", predictWithFile);
 document.getElementById("demoBtn").addEventListener("click", predictDemo);
+document.getElementById("streamDemoBtn").addEventListener("click", startRealtimeSimulation);
+document.getElementById("stopStreamBtn").addEventListener("click", () => stopRealtimeSimulation(true));
 document.getElementById("csvFile").addEventListener("change", updateCsvPreview);
 document.getElementById("folderInput").addEventListener("change", updateCsvPreview);
 document.getElementById("downloadReportBtn").addEventListener("click", downloadPredictionReport);
@@ -2141,6 +2312,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/predict-demo":
                 limit = int(parse_qs(parsed.query).get("limit", ["80"])[0])
                 self.handle_predict_demo(limit)
+            elif parsed.path == "/api/realtime-simulation":
+                limit = int(parse_qs(parsed.query).get("limit", ["80"])[0])
+                self.handle_realtime_simulation(limit)
             elif parsed.path == "/api/oracle/sync-models":
                 self.handle_sync_models()
             else:
@@ -2190,6 +2364,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         result = run_prediction(raw_df)
         oracle_result = save_prediction_to_oracle(result, source="demo", filename="X_test_raw_demo")
         self.send_json(public_prediction_result(result, oracle_result))
+
+    def handle_realtime_simulation(self, limit: int) -> None:
+        self.send_json(realtime_simulation_payload(limit))
 
     def handle_history(self) -> None:
         oracle_status = oracle_store.status()
