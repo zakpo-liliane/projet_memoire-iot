@@ -837,6 +837,20 @@ def html_page() -> str:
     }
     .traffic-svg { width: 100%; height: 220px; display: block; }
     .traffic-line, .traffic-area, .attack-line, .attack-point { transition: all .45s ease; }
+    .traffic-label {
+      font-family: "Consolas", monospace;
+      font-size: 12px;
+      font-weight: 800;
+      paint-order: stroke;
+      stroke: rgba(11,17,28,.92);
+      stroke-width: 4px;
+      stroke-linejoin: round;
+    }
+    .traffic-axis-label {
+      font-family: "Consolas", monospace;
+      font-size: 11px;
+      fill: var(--muted);
+    }
     .traffic-pulse { animation: trafficPulse 1.8s ease-in-out infinite; }
     @keyframes trafficPulse { 0%, 100% { opacity: .95; transform: scale(1); } 50% { opacity: .55; transform: scale(1.35); } }
     .alert-feed { display: grid; gap: 10px; margin-top: 12px; }
@@ -1186,6 +1200,7 @@ def html_page() -> str:
             <polyline id="normalTrafficLine" class="traffic-line" fill="none" stroke="var(--blue)" stroke-width="3"/>
             <polyline id="attackTrafficLine" class="attack-line" fill="none" stroke="var(--red)" stroke-width="2"/>
             <g id="attackTrafficPoints"></g>
+            <g id="trafficLabels"></g>
           </svg>
           <div id="alertFeed" class="alert-feed"></div>
         </div>
@@ -1776,7 +1791,8 @@ function renderTrafficChart(historyRows = [], alertRows = []) {
   const attackLine = document.getElementById("attackTrafficLine");
   const area = document.getElementById("trafficArea");
   const points = document.getElementById("attackTrafficPoints");
-  if (!normalLine || !attackLine || !area || !points) return;
+  const labels = document.getElementById("trafficLabels");
+  if (!normalLine || !attackLine || !area || !points || !labels) return;
   const { normal, attacks } = historyToTraffic(historyRows, alertRows);
   const left = 20, right = 735, top = 35, bottom = 225;
   const xStep = (right - left) / Math.max(normal.length - 1, 1);
@@ -1795,6 +1811,20 @@ function renderTrafficChart(historyRows = [], alertRows = []) {
     .filter((point, index) => attacks[index] >= 20)
     .map(point => `<circle class="attack-point traffic-pulse" cx="${point[0]}" cy="${point[1]}" r="5" fill="var(--red)" filter="url(#alertGlow)"/>`)
     .join("");
+  const attackLabels = attackPoints
+    .map((point, index) => ({ point, value: attacks[index], index }))
+    .filter(item => item.value >= 20)
+    .slice(-4)
+    .map(item => `<text class="traffic-label" x="${item.point[0] + 7}" y="${Math.max(18, item.point[1] - 8)}" fill="var(--red)">${Math.round(item.value)}</text>`);
+  const lastNormal = normalPoints[normalPoints.length - 1];
+  const lastAttack = attackPoints[attackPoints.length - 1];
+  labels.innerHTML = [
+    `<text class="traffic-axis-label" x="22" y="22">echelle relative 0-${Math.round(maxValue)}</text>`,
+    `<text class="traffic-label" x="${Math.min(700, lastNormal[0] - 38)}" y="${Math.max(18, lastNormal[1] - 10)}" fill="var(--blue)">N ${Math.round(normal[normal.length - 1])}</text>`,
+    `<text class="traffic-label" x="${Math.min(700, lastAttack[0] - 38)}" y="${Math.max(18, lastAttack[1] - 10)}" fill="var(--red)">A ${Math.round(attacks[attacks.length - 1])}</text>`,
+    `<text class="traffic-axis-label" x="22" y="242">N = trafic normal | A = trafic attaque | valeurs calculees depuis Oracle/simulation</text>`,
+    ...attackLabels,
+  ].join("");
 }
 
 function renderAttackBreakdown(rows) {
