@@ -1334,6 +1334,7 @@ def html_page() -> str:
       <div id="oracleMessage" class="status-box" style="margin-top:16px"></div>
       <div class="toolbar">
         <button class="btn primary" id="refreshHistoryBtn">Actualiser</button>
+        <button class="btn" id="downloadHistoryBtn">Telecharger l'historique</button>
         <button class="btn" id="syncModelsBtn">Synchroniser les resultats modeles</button>
       </div>
       <div class="grid two">
@@ -1613,6 +1614,54 @@ function downloadPredictionReport() {
   const a = document.createElement("a");
   a.href = url;
   a.download = `rapport_prediction_${state.lastPrediction.upload_id || "ids"}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function buildHistoryReport() {
+  const esc = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+  const lines = [
+    "section;date;source;fichier;lignes;attaques;taux;statut;niveau;message",
+  ];
+  (state.history || []).forEach(row => {
+    lines.push([
+      "analyse",
+      row.created_at,
+      row.source_type,
+      row.filename,
+      row.sample_count,
+      row.attack_count,
+      row.alert_rate,
+      row.status,
+      "",
+      "",
+    ].map(esc).join(";"));
+  });
+  (state.alerts || []).forEach(row => {
+    lines.push([
+      "alerte",
+      row.created_at,
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      row.severity,
+      row.message,
+    ].map(esc).join(";"));
+  });
+  return lines.join("\n");
+}
+
+function downloadHistoryReport() {
+  const blob = new Blob([buildHistoryReport()], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `historique_oracle_${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -2019,6 +2068,7 @@ document.getElementById("csvFile").addEventListener("change", updateCsvPreview);
 document.getElementById("folderInput").addEventListener("change", updateCsvPreview);
 document.getElementById("downloadReportBtn").addEventListener("click", downloadPredictionReport);
 document.getElementById("refreshHistoryBtn").addEventListener("click", loadHistory);
+document.getElementById("downloadHistoryBtn").addEventListener("click", downloadHistoryReport);
 document.getElementById("syncModelsBtn").addEventListener("click", syncModels);
 loadData().catch(err => {
   document.body.innerHTML = `<pre style="padding:24px">${err.stack || err}</pre>`;
