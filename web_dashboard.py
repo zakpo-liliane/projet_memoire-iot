@@ -115,6 +115,53 @@ def model_asset_paths(model_id: str) -> dict[str, str | None]:
     return files
 
 
+def expected_feature_names() -> list[str]:
+    if not MODEL_PATH.exists():
+        return []
+    try:
+        bundle = joblib.load(MODEL_PATH)
+        return list(bundle.get("feature_names", []))
+    except Exception:
+        return []
+
+
+def validate_prediction_columns(columns: list[str], feature_names: list[str]) -> dict[str, object]:
+    ignored = {
+        "label1",
+        "label2",
+        "label3",
+        "label4",
+        "label1_encoded",
+        "label2_encoded",
+        "label3_encoded",
+        "label4_encoded",
+        "label_full",
+        "timestamp",
+        "timestamp_start",
+        "timestamp_end",
+        "target",
+        "class",
+        "label",
+        "device_name",
+        "device_mac",
+    }
+    provided = set(columns)
+    expected = set(feature_names)
+    missing = sorted(expected - provided)
+    extra = sorted(col for col in provided - expected if col not in ignored)
+    present = len(expected & provided)
+    compatible = present >= max(1, int(len(expected) * 0.75))
+    return {
+        "compatible": compatible,
+        "expected_count": len(feature_names),
+        "present_count": present,
+        "missing_count": len(missing),
+        "extra_count": len(extra),
+        "missing_preview": missing[:8],
+        "extra_preview": extra[:8],
+    }
+
+
 def load_dashboard_data() -> dict[str, object]:
     metrics_df = read_csv(REPORTS / "final" / "final_model_comparison.csv")
     split_df = read_csv(OUTPUTS / "splits" / "split_summary.csv")
@@ -315,6 +362,25 @@ def save_prediction_to_oracle(result: dict[str, object], source: str, filename: 
 def public_prediction_result(result: dict[str, object], oracle_result: dict[str, object]) -> dict[str, object]:
     public = {key: value for key, value in result.items() if not key.startswith("_")}
     public["oracle"] = oracle_result
+    public["validation"] = {
+        "compatible": True,
+        "expected_count": len(expected_feature_names()),
+        "present_count": len(expected_feature_names()),
+        "missing_count": 0,
+        "extra_count": 0,
+        "missing_preview": [],
+        "extra_preview": [],
+    }
+    public["report"] = {
+        "id": public["upload_id"],
+        "source": "demo",
+        "model": public["model"],
+        "samples": public["samples"],
+        "attack_count": public["attack_count"],
+        "benign_count": public["benign_count"],
+        "alert_rate": public["alert_rate"],
+        "status": public["status"],
+    }
     return public
 
 
@@ -356,6 +422,8 @@ def predict_uploaded_files(files: list[dict[str, object]]) -> dict[str, object]:
     total_benign = 0
     oracle_saved = 0
     oracle_errors = []
+    validations = []
+    feature_names = expected_feature_names()
 
     for item in csv_files:
         filename = str(item.get("filename") or "uploaded_network_data.csv")
@@ -363,6 +431,8 @@ def predict_uploaded_files(files: list[dict[str, object]]) -> dict[str, object]:
         if not isinstance(content, bytes):
             continue
         raw_df = pd.read_csv(io.BytesIO(content))
+        validation = validate_prediction_columns(list(raw_df.columns), feature_names)
+        validations.append({"filename": filename, **validation})
         result = run_prediction(raw_df)
         oracle_result = save_prediction_to_oracle(result, source="upload", filename=filename)
         if oracle_result.get("saved"):
@@ -382,6 +452,10 @@ def predict_uploaded_files(files: list[dict[str, object]]) -> dict[str, object]:
                 "alert_rate": float(result["alert_rate"]),
                 "status": str(result["status"]),
                 "oracle_saved": bool(oracle_result.get("saved")),
+                "compatible": bool(validation["compatible"]),
+                "features_present": int(validation["present_count"]),
+                "features_expected": int(validation["expected_count"]),
+                "missing_columns": int(validation["missing_count"]),
             }
         )
         for row in result["predictions"][: max(0, 100 - len(preview_rows))]:
@@ -401,6 +475,22 @@ def predict_uploaded_files(files: list[dict[str, object]]) -> dict[str, object]:
         "metrics": None,
         "predictions": preview_rows,
         "files": summaries,
+        "validation": {
+            "compatible": all(item["compatible"] for item in validations) if validations else False,
+            "files": validations,
+        },
+        "report": {
+            "id": str(uuid.uuid4()),
+            "source": "upload",
+            "model": "decision_tree",
+            "files": len(csv_files),
+            "samples": total_samples,
+            "attack_count": total_attacks,
+            "benign_count": total_benign,
+            "alert_rate": alert_rate,
+            "status": "danger" if alert_rate >= 0.20 else "warning" if alert_rate > 0 else "safe",
+            "oracle_saved_files": oracle_saved,
+        },
         "oracle": {
             "saved": oracle_saved == len(csv_files),
             "saved_files": oracle_saved,
@@ -504,6 +594,51 @@ def html_page() -> str:
       min-height: 42px;
       font-size: 14px;
     }
+    .demo-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .demo-step {
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      border-radius: 8px;
+      padding: 14px;
+      min-height: 118px;
+    }
+    .demo-step span {
+      display: inline-grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(var(--accent-rgb), .12);
+      color: var(--blue);
+      font-weight: 800;
+      margin-bottom: 10px;
+    }
+    .demo-step strong { display: block; margin-bottom: 6px; }
+    .arch-flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+      align-items: stretch;
+    }
+    .arch-node {
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      border-radius: 8px;
+      padding: 16px;
+      min-height: 138px;
+      position: relative;
+    }
+    .arch-node:not(:last-child)::after {
+      content: ">";
+      position: absolute;
+      right: -11px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--blue);
+      font-family: "Consolas", monospace;
+      font-weight: 800;
+    }
+    .arch-node .metric-label { text-transform: uppercase; font-family: "Consolas", monospace; font-size: 11px; }
     main { padding: 28px; max-width: 1440px; width: 100%; }
     section { display: none; }
     section.active { display: block; }
@@ -861,7 +996,8 @@ def html_page() -> str:
     @media (max-width: 980px) {
       .app { grid-template-columns: 1fr; }
       aside { position: static; height: auto; }
-      .cards, .two, .three, .model-grid, .media-row, .sentinel-grid { grid-template-columns: 1fr; }
+      .cards, .two, .three, .model-grid, .media-row, .sentinel-grid, .demo-steps, .arch-flow { grid-template-columns: 1fr; }
+      .arch-node::after { display: none; }
       main { padding: 18px; }
       .bar-row { grid-template-columns: 120px 1fr 58px; }
       .dash-title { display: block; }
@@ -905,6 +1041,8 @@ def html_page() -> str:
         <button data-page="comparison" type="button">Comparaison</button>
         <button data-page="best" type="button">Meilleur modele</button>
         <button data-page="prediction" type="button">Prediction</button>
+        <button data-page="demo" type="button">Mode demonstration</button>
+        <button data-page="architecture" type="button">Architecture</button>
         <button data-page="history" type="button">Historique Oracle</button>
         <button data-page="explainability" type="button">Explicabilite</button>
       </div>
@@ -1135,9 +1273,11 @@ def html_page() -> str:
             <input id="folderInput" type="file" accept=".csv" webkitdirectory directory multiple>
           </div>
         </div>
+        <div id="csvPreview" class="status-box">Aucun fichier selectionne.</div>
         <div class="toolbar">
           <button class="btn primary" id="predictBtn">Lancer la detection</button>
           <button class="btn" id="demoBtn">Utiliser un echantillon demo</button>
+          <button class="btn" id="downloadReportBtn" type="button" disabled>Telecharger le rapport</button>
         </div>
         <div id="predictStatus" class="status-box">Aucune prediction lancee.</div>
       </div>
@@ -1193,6 +1333,38 @@ def html_page() -> str:
       </div>
     </section>
 
+    <section id="demo">
+      <h1>Mode demonstration</h1>
+      <p class="lead">Parcours court pour presenter l'application au jury sans chercher les pages pendant la soutenance.</p>
+      <div class="demo-steps">
+        <div class="demo-step"><span>1</span><strong>Dashboard</strong><p>Presenter le projet, le dataset, le modele final et l'etat Oracle.</p><button class="btn" data-page="dashboard" type="button">Ouvrir</button></div>
+        <div class="demo-step"><span>2</span><strong>Dataset</strong><p>Montrer la preparation, le split train/validation/test et SMOTE.</p><button class="btn" data-page="dataset" type="button">Ouvrir</button></div>
+        <div class="demo-step"><span>3</span><strong>Comparaison</strong><p>Expliquer pourquoi Decision Tree est retenu face aux 8 modeles.</p><button class="btn" data-page="comparison" type="button">Ouvrir</button></div>
+        <div class="demo-step"><span>4</span><strong>Prediction</strong><p>Importer un CSV, lancer la detection et telecharger le rapport.</p><button class="btn primary" data-page="prediction" type="button">Ouvrir</button></div>
+      </div>
+      <div class="panel" style="margin-top:16px">
+        <h2>Phrase de demonstration</h2>
+        <p>Cette application transforme les resultats du memoire en outil IDS: elle presente les donnees, compare les modeles, justifie le choix du Decision Tree, predit sur de nouveaux CSV et sauvegarde les analyses dans Oracle.</p>
+      </div>
+    </section>
+
+    <section id="architecture">
+      <h1>Architecture du systeme</h1>
+      <p class="lead">Vue technique de bout en bout entre le dataset, le modele final, l'application web et Oracle.</p>
+      <div class="arch-flow">
+        <div class="arch-node"><div class="metric-label">Source</div><h2>Dataset</h2><p>CIC-IIoT-2025 avec trafic benin et attaques IIoT.</p></div>
+        <div class="arch-node"><div class="metric-label">Preparation</div><h2>Pipeline ML</h2><p>Nettoyage, encodage, normalisation, split et SMOTE sur l'entrainement.</p></div>
+        <div class="arch-node"><div class="metric-label">Modele</div><h2>Decision Tree</h2><p>Modele final choisi pour performance, simplicite et interpretabilite.</p></div>
+        <div class="arch-node"><div class="metric-label">Interface</div><h2>Dashboard IDS</h2><p>Visualisation, comparaison, explicabilite et prediction CSV.</p></div>
+        <div class="arch-node"><div class="metric-label">Persistance</div><h2>Oracle</h2><p>Stockage des analyses, predictions et alertes detectees.</p></div>
+      </div>
+      <div class="grid three" style="margin-top:16px">
+        <div class="card"><div class="metric-label">Utilisateur</div><div class="metric-value">admin</div></div>
+        <div class="card"><div class="metric-label">Modele deploye</div><div class="metric-value">Decision Tree</div></div>
+        <div class="card"><div class="metric-label">Prediction</div><div class="metric-value">CSV</div></div>
+      </div>
+    </section>
+
     <section id="settings">
       <h1>Parametres</h1>
       <p class="lead">Reglages de l'interface et de la session.</p>
@@ -1212,7 +1384,7 @@ def html_page() -> str:
 </div>
 
 <script>
-const state = { data: null, history: [], alerts: [] };
+const state = { data: null, history: [], alerts: [], lastPrediction: null };
 const fmt = (v, digits = 4) => Number(v || 0).toFixed(digits);
 const pct = (v) => (Number(v || 0) * 100).toFixed(1) + "%";
 
@@ -1303,6 +1475,75 @@ function renderAlertFeed(rows) {
       <div class="alert-time">${row.source_ip || "Oracle"} Â· ${index === 0 ? "il y a 41 s" : "il y a " + (index + 2) + " min"}</div>
     </div>`;
   }).join("");
+}
+
+function fileSize(bytes) {
+  const value = Number(bytes || 0);
+  if (value >= 1024 * 1024) return (value / (1024 * 1024)).toFixed(1) + " Mo";
+  if (value >= 1024) return (value / 1024).toFixed(1) + " Ko";
+  return value + " o";
+}
+
+async function updateCsvPreview() {
+  const input = document.getElementById("csvFile");
+  const folderInput = document.getElementById("folderInput");
+  const preview = document.getElementById("csvPreview");
+  const files = folderInput.files.length ? Array.from(folderInput.files) : Array.from(input.files);
+  const csvFiles = files.filter(file => file.name.toLowerCase().endsWith(".csv"));
+  if (!csvFiles.length) {
+    preview.className = "status-box";
+    preview.textContent = "Aucun fichier CSV selectionne.";
+    return;
+  }
+  const first = csvFiles[0];
+  let columns = [];
+  try {
+    const head = await first.slice(0, 65536).text();
+    columns = (head.split(/\r?\n/)[0] || "").split(",").filter(Boolean);
+  } catch {
+    columns = [];
+  }
+  preview.className = "status-box safe";
+  preview.innerHTML = `<strong>${csvFiles.length} fichier(s) CSV selectionne(s)</strong><br>
+    Premier fichier : ${first.webkitRelativePath || first.name} · ${fileSize(first.size)}<br>
+    Colonnes detectees : ${columns.length || "non determine"}`;
+}
+
+function buildPredictionReport(data) {
+  const esc = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+  const lines = [
+    "section;champ;valeur",
+    `rapport;date;${esc(new Date().toLocaleString("fr-FR"))}`,
+    `rapport;modele;${esc(data.model || "decision_tree")}`,
+    `rapport;echantillons;${esc(data.samples)}`,
+    `rapport;attaques;${esc(data.attack_count)}`,
+    `rapport;benins;${esc(data.benign_count)}`,
+    `rapport;taux_alerte;${esc(pct(data.alert_rate))}`,
+    `rapport;statut;${esc(data.status)}`,
+    `rapport;oracle;${esc(data.oracle && data.oracle.message ? data.oracle.message : "non renseignee")}`,
+  ];
+  (data.files || []).forEach(file => {
+    lines.push(`fichier;${esc(file.filename)};${esc(`lignes=${file.samples}; attaques=${file.attack_count}; benins=${file.benign_count}; compatible=${file.compatible}`)}`);
+  });
+  if (data.validation && data.validation.files) {
+    data.validation.files.forEach(file => {
+      lines.push(`validation;${esc(file.filename)};${esc(`features=${file.present_count}/${file.expected_count}; manquantes=${file.missing_count}; supplementaires=${file.extra_count}`)}`);
+    });
+  }
+  return lines.join("\n");
+}
+
+function downloadPredictionReport() {
+  if (!state.lastPrediction) return;
+  const blob = new Blob([buildPredictionReport(state.lastPrediction)], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `rapport_prediction_${state.lastPrediction.upload_id || "ids"}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 function numberFromText(value) {
@@ -1597,6 +1838,8 @@ async function predictDemo() {
 }
 
 function renderPrediction(data) {
+  state.lastPrediction = data;
+  document.getElementById("downloadReportBtn").disabled = false;
   const liveRow = {
     sample_count: data.samples,
     attack_count: data.attack_count,
@@ -1621,8 +1864,15 @@ function renderPrediction(data) {
   const metrics = data.metrics ? `<div class="panel" style="margin-bottom:16px"><h2>Metriques sur ce fichier</h2><div class="grid cards">
     ${Object.entries(data.metrics).slice(0, 8).map(([k, v]) => `<div class="card"><div class="metric-label">${k}</div><div class="metric-value">${fmt(v)}</div></div>`).join("")}
   </div></div>` : "";
+  const validation = data.validation ? `<div class="panel" style="margin-bottom:16px">
+    <h2>Verification du CSV</h2>
+    <div class="status-box ${data.validation.compatible ? "safe" : "warning"}">
+      ${data.validation.compatible ? "Format compatible avec le modele." : "Format partiellement compatible: certaines colonnes attendues sont absentes."}
+    </div>
+    ${data.validation.files ? `<div class="table-wrap" style="margin-top:12px"><table id="validationTable"></table></div>` : ""}
+  </div>` : "";
   const fileSummary = data.files ? `<div class="panel" style="margin-bottom:16px"><h2>Resume par fichier</h2><div class="table-wrap"><table id="fileTable"></table></div></div>` : "";
-  result.innerHTML = metrics + fileSummary + `<div class="panel"><h2>Predictions</h2><div class="table-wrap"><table id="predTable"></table></div><p class="note">Affichage limite aux 100 premieres lignes.</p></div>`;
+  result.innerHTML = metrics + validation + fileSummary + `<div class="panel"><h2>Predictions</h2><div class="table-wrap"><table id="predTable"></table></div><p class="note">Affichage limite aux 100 premieres lignes.</p></div>`;
   if (data.oracle && data.oracle.message) {
     result.innerHTML = `<div class="status-box ${data.oracle.saved ? "safe" : ""}" style="margin-bottom:16px">${data.oracle.message}</div>` + result.innerHTML;
   }
@@ -1633,7 +1883,19 @@ function renderPrediction(data) {
       {key: "attack_count", label: "attaques"},
       {key: "benign_count", label: "benins"},
       {key: "alert_rate", label: "taux alerte"},
+      {key: "compatible", label: "compatible"},
+      {key: "features_present", label: "features"},
       {key: "oracle_saved", label: "oracle"},
+    ]);
+  }
+  if (data.validation && data.validation.files) {
+    table(document.getElementById("validationTable"), data.validation.files, [
+      {key: "filename", label: "fichier"},
+      {key: "compatible", label: "compatible"},
+      {key: "present_count", label: "features presentes"},
+      {key: "expected_count", label: "features attendues"},
+      {key: "missing_count", label: "manquantes"},
+      {key: "extra_count", label: "supplementaires"},
     ]);
   }
   table(document.getElementById("predTable"), data.predictions, [
@@ -1680,6 +1942,9 @@ document.getElementById("settingsMenuBtn").addEventListener("click", () => {
 });
 document.getElementById("predictBtn").addEventListener("click", predictWithFile);
 document.getElementById("demoBtn").addEventListener("click", predictDemo);
+document.getElementById("csvFile").addEventListener("change", updateCsvPreview);
+document.getElementById("folderInput").addEventListener("change", updateCsvPreview);
+document.getElementById("downloadReportBtn").addEventListener("click", downloadPredictionReport);
 document.getElementById("refreshHistoryBtn").addEventListener("click", loadHistory);
 document.getElementById("syncModelsBtn").addEventListener("click", syncModels);
 loadData().catch(err => {
