@@ -49,6 +49,7 @@ logs/
 
 # Fichiers de configuration sensibles
 .env
+oracle_config.env
 *.key
 outputs/ 
 *.pkl.gz 
