@@ -1476,7 +1476,6 @@ function applyMode(mode) {
 
 function authenticate(user) {
   const username = user || "admin";
-  localStorage.setItem("idsSessionUser", username);
   document.body.classList.add("authenticated");
   const sessionUser = document.getElementById("sessionUser");
   const settingsUser = document.getElementById("settingsUser");
@@ -1486,6 +1485,7 @@ function authenticate(user) {
 
 function logout() {
   localStorage.removeItem("idsSessionUser");
+  sessionStorage.removeItem("idsSessionUser");
   document.body.classList.remove("authenticated");
   setPage("dashboard");
 }
@@ -2000,7 +2000,7 @@ document.getElementById("loginForm").addEventListener("submit", (event) => {
 });
 document.getElementById("logoutBtn").addEventListener("click", logout);
 document.getElementById("refreshAppBtn").addEventListener("click", () => {
-  loadData();
+  window.location.reload();
 });
 document.getElementById("themeToggleBtn").addEventListener("click", () => {
   applyMode(document.body.classList.contains("mode-light") ? "dark" : "light");
@@ -2024,8 +2024,8 @@ loadData().catch(err => {
   document.body.innerHTML = `<pre style="padding:24px">${err.stack || err}</pre>`;
 });
 applyMode(localStorage.getItem("idsMode") || "dark");
-const savedUser = localStorage.getItem("idsSessionUser");
-if (savedUser) authenticate(savedUser);
+localStorage.removeItem("idsSessionUser");
+sessionStorage.removeItem("idsSessionUser");
 function tickClock() {
   const el = document.getElementById("sideClock");
   if (el) el.textContent = new Date().toLocaleTimeString("fr-FR");
